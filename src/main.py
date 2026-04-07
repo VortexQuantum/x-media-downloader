@@ -29,10 +29,10 @@ def run(config_path: str = None) -> dict:
         )
 
     logger.info("Fetching liked tweets from X...")
-    xurl_bin = config["xurl"]["bin"] or "xurl"
     raw_json = fetch_liked_tweets(
-        max_results=config["xurl"]["likes_per_fetch"],
-        xurl_bin=xurl_bin,
+        cookies_file=config["gallery_dl"]["cookies_file"],
+        max_results=config["gallery_dl"]["likes_per_fetch"],
+        gallery_dl_bin=config["gallery_dl"]["bin"],
     )
     media_items = parse_liked_tweets(raw_json)
     logger.info(f"Found {len(media_items)} media items in liked tweets")

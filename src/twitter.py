@@ -1,98 +1,145 @@
-"""Fetch liked tweets with media from X via xurl CLI."""
+"""Fetch liked tweets with media from X via gallery-dl."""
 
 import json
 import subprocess
+import os
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def _get_user_id(xurl_bin: str = "xurl") -> str:
+def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
+                       gallery_dl_bin: str = "gallery-dl") -> str:
+    """Fetch liked tweets as JSON via gallery-dl. Returns raw JSON string."""
+    if not os.path.exists(cookies_file):
+        raise FileNotFoundError(
+            f"Cookies file not found: {cookies_file}\n"
+            f"Run: python3 setup-cookie.py"
+        )
+
+    # Prefer 'python3 -m gallery_dl' so PATH doesn't matter
+    if gallery_dl_bin in ("gallery-dl", ""):
+        cmd = [
+            "python3", "-m", "gallery_dl",
+            "--cookies", cookies_file,
+            "-j",
+            "--range", f"1-{max_results}",
+            "https://x.com/zhengrenzhe/likes",
+        ]
+    else:
+        cmd = [
+            gallery_dl_bin,
+            "--cookies", cookies_file,
+            "-j",
+            "--range", f"1-{max_results}",
+            "https://x.com/zhengrenzhe/likes",
+        ]
+
+    logger.info(f"Running: {' '.join(cmd)}")
     result = subprocess.run(
-        [xurl_bin, "whoami"],
-        capture_output=True, text=True, timeout=30
+        cmd,
+        capture_output=True, text=True, timeout=120
     )
-    data = json.loads(result.stdout)
-    return data["data"]["id"]
 
-
-def fetch_liked_tweets(max_results: int = 100,
-                       pagination_token: Optional[str] = None,
-                       xurl_bin: str = "xurl") -> str:
-    user_id = _get_user_id(xurl_bin)
-
-    url = (
-        f"/2/users/{user_id}/liked_tweets"
-        f"?max_results={max_results}"
-        f"&expansions=attachments.media_keys"
-        f"&media.fields=media_key,type,url,preview_image_url,variants"
-        f"&tweet.fields=attachments,created_at"
-    )
-    if pagination_token:
-        url += f"&pagination_token={pagination_token}"
-
-    result = subprocess.run(
-        [xurl_bin, url],
-        capture_output=True, text=True, timeout=60
-    )
     if result.returncode != 0:
-        raise RuntimeError(f"xurl failed: {result.stderr}")
+        stderr = result.stderr.strip()
+        if "401" in stderr or "Unauthorized" in stderr:
+            raise RuntimeError(
+                "Twitter auth failed. Cookies may have expired.\n"
+                "Re-export cookies: python3 setup-cookie.py"
+            )
+        raise RuntimeError(f"gallery-dl failed: {stderr}")
 
     return result.stdout
 
 
 def parse_liked_tweets(raw_json: str) -> list:
-    data = json.loads(raw_json)
-    tweets = data.get("data", [])
-    media_map = {}
+    """Parse gallery-dl JSON output, extract media entries.
 
-    for m in data.get("includes", {}).get("media", []):
-        media_map[m["media_key"]] = m
+    gallery-dl outputs newline-delimited JSON arrays:
+    [["twitter", num, {...tweet_data...}], ...]
 
+    Returns list of dicts: {tweet_id, media_url, media_type, created_at}
+    """
     results = []
-    for tweet in tweets:
-        attachments = tweet.get("attachments", {})
-        media_keys = attachments.get("media_keys", [])
-        if not media_keys:
+
+    for line in raw_json.strip().split("\n"):
+        line = line.strip()
+        if not line:
             continue
 
-        for mk in media_keys:
-            media = media_map.get(mk)
-            if not media:
-                continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
+        # gallery-dl format: ["twitter", num, {tweet_data}]
+        if not isinstance(entry, list) or len(entry) < 3:
+            continue
+
+        tweet_data = entry[2]
+        if not isinstance(tweet_data, dict):
+            continue
+
+        tweet_id = str(tweet_data.get("tweet_id", ""))
+        created_at = tweet_data.get("date", "")
+
+        entities = tweet_data.get("entities", {})
+        media_list = entities.get("media", [])
+
+        if not media_list:
+            # Some tweets embed external media (pbs.twimg.com URLs in content)
+            # We skip those without media entities for now
+            continue
+
+        for media in media_list:
             media_url = _extract_best_url(media)
             if not media_url:
                 continue
 
             results.append({
-                "tweet_id": tweet["id"],
+                "tweet_id": tweet_id,
                 "media_url": media_url,
-                "media_type": media.get("type", "photo"),
-                "created_at": tweet.get("created_at", ""),
+                "media_type": _normalize_type(media.get("type", "photo")),
+                "created_at": created_at,
             })
 
     return results
 
 
 def _extract_best_url(media: dict) -> Optional[str]:
+    """Get best download URL from a media entity."""
     mtype = media.get("type", "photo")
 
-    if mtype == "photo":
-        return media.get("url") or media.get("preview_image_url")
+    if mtype in ("photo", "image"):
+        # gallery-dl provides 'media_url' or 'url'
+        url = media.get("media_url") or media.get("url")
+        if url:
+            # Use :orig suffix for full resolution
+            return url + ":orig"
+        return None
 
     if mtype in ("video", "animated_gif"):
-        variants = media.get("variants", [])
+        variants = media.get("video_info", {}).get("variants", [])
         mp4_variants = [
             v for v in variants
             if v.get("content_type") == "video/mp4"
         ]
         if not mp4_variants:
-            mp4_variants = [v for v in variants if "bit_rate" in v]
+            mp4_variants = [v for v in variants if "bitrate" in v]
         if not mp4_variants:
             return None
-        best = max(mp4_variants, key=lambda v: v.get("bit_rate", 0))
+        best = max(mp4_variants, key=lambda v: v.get("bitrate", 0))
         return best.get("url")
 
     return None
+
+
+def _normalize_type(media_type: str) -> str:
+    """Normalize gallery-dl media types to our types."""
+    if media_type in ("photo", "image"):
+        return "image"
+    if media_type in ("video", "animated_gif"):
+        return "video"
+    return "image"

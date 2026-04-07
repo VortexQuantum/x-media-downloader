@@ -12,7 +12,8 @@ telegram:
   bot_token: "YOUR_BOT_TOKEN"
   chat_id: "YOUR_CHAT_ID"
 
-# xurl settings
-xurl:
+# gallery-dl settings (free, uses browser cookies)
+gallery_dl:
+  cookies_file: "twitter-cookies.txt"
+  bin: "gallery-dl"
   likes_per_fetch: 100
-  bin: ""

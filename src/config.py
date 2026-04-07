@@ -12,9 +12,10 @@ DEFAULT_CONFIG = {
         "bot_token": "",
         "chat_id": "",
     },
-    "xurl": {
+    "gallery_dl": {
+        "cookies_file": "twitter-cookies.txt",
+        "bin": "gallery-dl",
         "likes_per_fetch": 100,
-        "bin": "",
     },
 }
 
@@ -34,7 +35,6 @@ def _deep_set(d: dict, key_path: str, value):
 
 def load_config(config_path: str = None) -> dict:
     if config_path is None:
-        # Default to config.yaml in project root
         config_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             "config.yaml"
@@ -44,7 +44,7 @@ def load_config(config_path: str = None) -> dict:
         "download_dir": DEFAULT_CONFIG["download_dir"],
         "db_path": DEFAULT_CONFIG["db_path"],
         "telegram": dict(DEFAULT_CONFIG["telegram"]),
-        "xurl": dict(DEFAULT_CONFIG["xurl"]),
+        "gallery_dl": dict(DEFAULT_CONFIG["gallery_dl"]),
     }
 
     if os.path.exists(config_path):
@@ -68,6 +68,14 @@ def load_config(config_path: str = None) -> dict:
         config["db_path"] = os.path.join(
             os.path.dirname(config_path) if config_path else "",
             config["db_path"]
+        )
+
+    # Resolve cookies_file relative to project root
+    cookies_file = config["gallery_dl"]["cookies_file"]
+    if not os.path.isabs(cookies_file):
+        config["gallery_dl"]["cookies_file"] = os.path.join(
+            os.path.dirname(config_path) if config_path else "",
+            cookies_file
         )
 
     return config
