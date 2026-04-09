@@ -18,7 +18,6 @@ def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
             f"Run: python3 setup-cookie.py"
         )
 
-    # Prefer 'python3 -m gallery_dl' so PATH doesn't matter
     if gallery_dl_bin in ("gallery-dl", ""):
         cmd = [
             "python3", "-m", "gallery_dl",
@@ -57,89 +56,94 @@ def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
 def parse_liked_tweets(raw_json: str) -> list:
     """Parse gallery-dl JSON output, extract media entries.
 
-    gallery-dl outputs newline-delimited JSON arrays:
-    [["twitter", num, {...tweet_data...}], ...]
+    gallery-dl outputs a JSON array of mixed entries:
+      [NUM, {tweet_metadata}]     -- tweet info (has tweet_id, count)
+      [NUM, "URL", {media_meta}]  -- media file URL
+
+    Media entries follow their parent tweet.
+    The tweet's 'count' field indicates how many media files it has.
 
     Returns list of dicts: {tweet_id, media_url, media_type, created_at}
     """
+    try:
+        entries = json.loads(raw_json)
+    except json.JSONDecodeError:
+        # Try newline-delimited
+        results = []
+        for line in raw_json.strip().split("\n"):
+            try:
+                parsed = json.loads(line)
+                results.extend(_extract_from_entries(parsed))
+            except json.JSONDecodeError:
+                continue
+        return results
+
+    return _extract_from_entries(entries)
+
+
+def _extract_from_entries(entries: list) -> list:
+    """Extract media from gallery-dl JSON entries array."""
     results = []
+    current_tweet_id = None
+    current_date = None
+    media_count_expected = 0
+    media_count_found = 0
 
-    for line in raw_json.strip().split("\n"):
-        line = line.strip()
-        if not line:
+    for entry in entries:
+        if not isinstance(entry, list) or len(entry) < 2:
             continue
 
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
+        second = entry[1]
+
+        # Tweet metadata entry: second element is a dict with tweet_id
+        if isinstance(second, dict) and "tweet_id" in second:
+            current_tweet_id = str(second["tweet_id"])
+            current_date = second.get("date", "")
+            media_count_expected = second.get("count", 0)
+            media_count_found = 0
             continue
 
-        # gallery-dl format: ["twitter", num, {tweet_data}]
-        if not isinstance(entry, list) or len(entry) < 3:
-            continue
-
-        tweet_data = entry[2]
-        if not isinstance(tweet_data, dict):
-            continue
-
-        tweet_id = str(tweet_data.get("tweet_id", ""))
-        created_at = tweet_data.get("date", "")
-
-        entities = tweet_data.get("entities", {})
-        media_list = entities.get("media", [])
-
-        if not media_list:
-            # Some tweets embed external media (pbs.twimg.com URLs in content)
-            # We skip those without media entities for now
-            continue
-
-        for media in media_list:
-            media_url = _extract_best_url(media)
-            if not media_url:
+        # Media URL entry: second element is a URL string
+        if isinstance(second, str) and (
+            "pbs.twimg.com" in second or "video.twimg.com" in second
+        ):
+            if not current_tweet_id:
                 continue
 
+            media_count_found += 1
+            media_type = _detect_type_from_url(second)
+            # If there's metadata in the third element, use it
+            if len(entry) >= 3 and isinstance(entry[2], dict):
+                media_type = _detect_type_from_meta(entry[2], second)
+
             results.append({
-                "tweet_id": tweet_id,
-                "media_url": media_url,
-                "media_type": _normalize_type(media.get("type", "photo")),
-                "created_at": created_at,
+                "tweet_id": current_tweet_id,
+                "media_url": second,
+                "media_type": media_type,
+                "created_at": current_date,
             })
+
+            # If we've found all expected media for this tweet, reset
+            if media_count_expected > 0 and media_count_found >= media_count_expected:
+                # Don't reset current_tweet_id yet — next entry might be
+                # a new tweet which will overwrite it
+                pass
 
     return results
 
 
-def _extract_best_url(media: dict) -> Optional[str]:
-    """Get best download URL from a media entity."""
-    mtype = media.get("type", "photo")
-
-    if mtype in ("photo", "image"):
-        # gallery-dl provides 'media_url' or 'url'
-        url = media.get("media_url") or media.get("url")
-        if url:
-            # Use :orig suffix for full resolution
-            return url + ":orig"
-        return None
-
-    if mtype in ("video", "animated_gif"):
-        variants = media.get("video_info", {}).get("variants", [])
-        mp4_variants = [
-            v for v in variants
-            if v.get("content_type") == "video/mp4"
-        ]
-        if not mp4_variants:
-            mp4_variants = [v for v in variants if "bitrate" in v]
-        if not mp4_variants:
-            return None
-        best = max(mp4_variants, key=lambda v: v.get("bitrate", 0))
-        return best.get("url")
-
-    return None
-
-
-def _normalize_type(media_type: str) -> str:
-    """Normalize gallery-dl media types to our types."""
-    if media_type in ("photo", "image"):
-        return "image"
-    if media_type in ("video", "animated_gif"):
+def _detect_type_from_url(url: str) -> str:
+    """Guess media type from URL."""
+    if "video.twimg.com" in url or "amplify_video" in url or url.endswith(".mp4"):
         return "video"
     return "image"
+
+
+def _detect_type_from_meta(meta: dict, url: str) -> str:
+    """Detect media type from gallery-dl metadata."""
+    ext = meta.get("extension", "")
+    if ext in ("mp4",):
+        return "video"
+    if ext in ("jpg", "jpeg", "png", "gif", "webp"):
+        return "image"
+    return _detect_type_from_url(url)
