@@ -10,35 +10,38 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
+                       offset: int = 0,
                        gallery_dl_bin: str = "gallery-dl") -> str:
-    """Fetch liked tweets as JSON via gallery-dl. Returns raw JSON string."""
+    """Fetch liked tweets as JSON via gallery-dl. Returns raw JSON string.
+
+    If offset=0 (default), fetches all liked tweets (no range limit).
+    If offset>0, fetches range offset+1 to offset+max_results for pagination.
+    """
     if not os.path.exists(cookies_file):
         raise FileNotFoundError(
             f"Cookies file not found: {cookies_file}\n"
             f"Run: python3 setup-cookie.py"
         )
 
-    if gallery_dl_bin in ("gallery-dl", ""):
-        cmd = [
-            "python3", "-m", "gallery_dl",
-            "--cookies", cookies_file,
-            "-j",
-            "--range", f"1-{max_results}",
-            "https://x.com/zhengrenzhe/likes",
-        ]
-    else:
-        cmd = [
-            gallery_dl_bin,
-            "--cookies", cookies_file,
-            "-j",
-            "--range", f"1-{max_results}",
-            "https://x.com/zhengrenzhe/likes",
-        ]
+    base_cmd = [
+        "python3", "-m", "gallery_dl",
+        "--cookies", cookies_file,
+        "-j",
+    ]
 
-    logger.info(f"Running: {' '.join(cmd)}")
+    if offset >= 0:
+        # Always use range for batch fetching
+        start = offset + 1
+        end = offset + max_results
+        base_cmd.extend(["--range", f"{start}-{end}"])
+    # else: no --range = fetch all likes
+
+    base_cmd.append("https://x.com/zhengrenzhe/likes")
+
+    logger.info(f"Running: {' '.join(base_cmd)}")
     result = subprocess.run(
-        cmd,
-        capture_output=True, text=True, timeout=120
+        base_cmd,
+        capture_output=True, text=True, timeout=300
     )
 
     if result.returncode != 0:
@@ -54,21 +57,20 @@ def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
 
 
 def parse_liked_tweets(raw_json: str) -> list:
-    """Parse gallery-dl JSON output, extract media entries.
+    """Parse gallery-dl JSON output, extract ALL media entries per tweet.
 
     gallery-dl outputs a JSON array of mixed entries:
       [NUM, {tweet_metadata}]     -- tweet info (has tweet_id, count)
       [NUM, "URL", {media_meta}]  -- media file URL
 
-    Media entries follow their parent tweet.
-    The tweet's 'count' field indicates how many media files it has.
+    Media entries follow their parent tweet. count=N means N media files.
+    ALL media files for a tweet are returned (not just the first one).
 
     Returns list of dicts: {tweet_id, media_url, media_type, created_at}
     """
     try:
         entries = json.loads(raw_json)
     except json.JSONDecodeError:
-        # Try newline-delimited
         results = []
         for line in raw_json.strip().split("\n"):
             try:
@@ -82,12 +84,10 @@ def parse_liked_tweets(raw_json: str) -> list:
 
 
 def _extract_from_entries(entries: list) -> list:
-    """Extract media from gallery-dl JSON entries array."""
+    """Extract ALL media from gallery-dl JSON entries array."""
     results = []
     current_tweet_id = None
     current_date = None
-    media_count_expected = 0
-    media_count_found = 0
 
     for entry in entries:
         if not isinstance(entry, list) or len(entry) < 2:
@@ -95,24 +95,20 @@ def _extract_from_entries(entries: list) -> list:
 
         second = entry[1]
 
-        # Tweet metadata entry: second element is a dict with tweet_id
+        # Tweet metadata entry
         if isinstance(second, dict) and "tweet_id" in second:
             current_tweet_id = str(second["tweet_id"])
             current_date = second.get("date", "")
-            media_count_expected = second.get("count", 0)
-            media_count_found = 0
             continue
 
-        # Media URL entry: second element is a URL string
+        # Media URL entry
         if isinstance(second, str) and (
             "pbs.twimg.com" in second or "video.twimg.com" in second
         ):
             if not current_tweet_id:
                 continue
 
-            media_count_found += 1
             media_type = _detect_type_from_url(second)
-            # If there's metadata in the third element, use it
             if len(entry) >= 3 and isinstance(entry[2], dict):
                 media_type = _detect_type_from_meta(entry[2], second)
 
@@ -123,27 +119,28 @@ def _extract_from_entries(entries: list) -> list:
                 "created_at": current_date,
             })
 
-            # If we've found all expected media for this tweet, reset
-            if media_count_expected > 0 and media_count_found >= media_count_expected:
-                # Don't reset current_tweet_id yet — next entry might be
-                # a new tweet which will overwrite it
-                pass
-
     return results
 
 
 def _detect_type_from_url(url: str) -> str:
-    """Guess media type from URL."""
     if "video.twimg.com" in url or "amplify_video" in url or url.endswith(".mp4"):
         return "video"
     return "image"
 
 
 def _detect_type_from_meta(meta: dict, url: str) -> str:
-    """Detect media type from gallery-dl metadata."""
     ext = meta.get("extension", "")
     if ext in ("mp4",):
         return "video"
     if ext in ("jpg", "jpeg", "png", "gif", "webp"):
         return "image"
     return _detect_type_from_url(url)
+
+
+def count_media_by_type(items: list) -> dict:
+    """Count media items by type for logging."""
+    counts = {}
+    for item in items:
+        t = item.get("media_type", "unknown")
+        counts[t] = counts.get(t, 0) + 1
+    return counts
