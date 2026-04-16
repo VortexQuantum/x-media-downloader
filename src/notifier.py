@@ -1,4 +1,4 @@
-"""Telegram notification sender."""
+"""Telegram 通知发送模块"""
 
 import requests
 import logging
@@ -20,11 +20,11 @@ class TelegramNotifier:
             )
             data = resp.json()
             if not data.get("ok"):
-                logger.error(f"Telegram API error: {data}")
+                logger.error(f"Telegram API 错误: {data}")
                 return False
             return True
         except Exception as e:
-            logger.error(f"Telegram send failed: {e}")
+            logger.error(f"Telegram 发送失败: {e}")
             return False
 
     def send_text(self, text: str) -> bool:
@@ -35,18 +35,23 @@ class TelegramNotifier:
         })
 
     def send_download_report(self, new_count: int, total_count: int,
+                             failed_count: int = 0,
                              details: list = None) -> bool:
+        """发送格式化的下载报告"""
         lines = [
-            "📥 <b>X Media Download Report</b>",
-            f"🆕 New downloads: <b>{new_count}</b>",
-            f"📊 Total in library: <b>{total_count}</b>",
+            "📥 <b>X 媒体下载报告</b>",
+            f"🆕 新增下载: <b>{new_count}</b>",
+            f"📊 媒体库总计: <b>{total_count}</b>",
         ]
+        if failed_count > 0:
+            lines.append(f"⚠️ 下载失败: <b>{failed_count}</b>")
+
         if details:
             lines.append("")
-            lines.append("<b>New files:</b>")
+            lines.append("<b>新增文件:</b>")
             for d in details[:10]:
                 lines.append(f"  • {d}")
             if len(details) > 10:
-                lines.append(f"  ... and {len(details) - 10} more")
+                lines.append(f"  ... 还有 {len(details) - 10} 个")
 
         return self.send_text("\n".join(lines))

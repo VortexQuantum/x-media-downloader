@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""X Media Downloader -- fetch liked media from X and download locally."""
+"""X Media Downloader -- 自动下载 X (Twitter) 已喜欢的所有媒体"""
 
 import sys
-import logging
 import time
+import logging
 
 from src.config import load_config
 from src.db import DownloadDB
@@ -15,7 +15,8 @@ from src.notifier import TelegramNotifier
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s  %(message)s",
+    datefmt="%H:%M:%S"
 )
 logger = logging.getLogger(__name__)
 
@@ -31,93 +32,125 @@ def run(config_path: str = None) -> dict:
             chat_id=config["telegram"]["chat_id"],
         )
 
-    # --- Fetch ---
+    # --- 抓取 ---
     offset = db.get_fetch_offset()
     batch_size = config["gallery_dl"]["likes_per_fetch"]
+    batch_num = (offset // batch_size) + 1
 
-    logger.info(f"Fetching liked tweets {offset+1} to {offset+batch_size}...")
+    logger.info("=" * 50)
+    logger.info(f"📥 第 {batch_num} 页: 抓取第 {offset + 1} ~ {offset + batch_size} 条喜欢")
     t0 = time.time()
+
     raw_json = fetch_liked_tweets(
         cookies_file=config["gallery_dl"]["cookies_file"],
         max_results=batch_size,
         offset=offset,
         gallery_dl_bin=config["gallery_dl"]["bin"],
     )
+
     elapsed = time.time() - t0
 
-    # --- Parse ---
+    # --- 解析 ---
     media_items = parse_liked_tweets(raw_json)
-
-    # Detailed log
     type_counts = count_media_by_type(media_items)
     unique_tweets = len(set(item["tweet_id"] for item in media_items))
 
-    logger.info(f"Fetched in {elapsed:.1f}s")
-    logger.info(f"  Media files found: {len(media_items)}")
-    logger.info(f"  From unique tweets: {unique_tweets}")
-    logger.info(f"  By type: {type_counts}")
+    logger.info(f"⏱  抓取耗时 {elapsed:.1f}s")
+    logger.info(f"📊 共 {unique_tweets} 条推文, {len(media_items)} 个媒体文件")
+    type_str = " | ".join(f"{k}: {v}" for k, v in sorted(type_counts.items()))
+    logger.info(f"   └─ {type_str}")
 
     if not media_items:
-        logger.info("No media found in this batch. May be caught up.")
+        logger.info("没有找到新媒体，可能已追到最新。")
         db.close()
-        return {"new_downloads": 0, "total_downloads": db.get_stats()["total"], "items": []}
+        return {"new_downloads": 0, "total": 0, "failed": [], "items": []}
 
-    # --- Download ---
+    # --- 按推文分组显示进度 ---
+    tweet_groups = {}
+    for item in media_items:
+        tid = item["tweet_id"]
+        tweet_groups.setdefault(tid, []).append(item)
+
+    # --- 下载 ---
     new_downloads = []
     skipped = 0
-    errors = 0
+    failed_items = []
 
-    for item in media_items:
-        tweet_id = item["tweet_id"]
-        media_url = item["media_url"]
+    for tweet_idx, (tweet_id, items) in enumerate(tweet_groups.items(), 1):
+        n_media = len(items)
+        new_for_tweet = 0
 
-        if db.is_downloaded(tweet_id, media_url):
-            skipped += 1
-            continue
+        logger.info(f"")
+        logger.info(f"  [{tweet_idx}/{unique_tweets}] 推文 {tweet_id} — {n_media} 个媒体")
 
-        try:
+        for media_idx, item in enumerate(items, 1):
+            media_url = item["media_url"]
+
+            if db.is_downloaded(tweet_id, media_url):
+                skipped += 1
+                continue
+
+            logger.info(f"    下载 {media_idx}/{n_media}: {item['media_type']}")
+
             filepath = download_media(
                 media_url,
                 config["download_dir"],
                 tweet_id,
                 item["media_type"],
+                retries=2,
             )
-            db.mark_downloaded(tweet_id, media_url,
-                               filepath, item["media_type"])
-            new_downloads.append(item)
-        except Exception as e:
-            errors += 1
-            logger.error(f"FAILED {tweet_id}: {e}")
 
-    # --- Update offset ---
+            if filepath:
+                db.mark_downloaded(tweet_id, media_url,
+                                   filepath, item["media_type"])
+                new_downloads.append(item)
+                new_for_tweet += 1
+            else:
+                failed_items.append(item)
+
+        if new_for_tweet > 0:
+            logger.info(f"    ✓ 本条新增 {new_for_tweet} 个文件")
+
+    # --- 更新偏移 ---
     db.set_fetch_offset(offset + batch_size)
 
-    # --- Report ---
+    # --- 汇总报告 ---
     stats = db.get_stats()
-    logger.info("-" * 40)
-    logger.info(f"Download summary:")
-    logger.info(f"  New downloads:  {len(new_downloads)}")
-    logger.info(f"  Skipped (dup):  {skipped}")
-    logger.info(f"  Errors:         {errors}")
-    logger.info(f"  Total in DB:    {stats['total']} files from {stats['unique_tweets']} tweets")
-    logger.info(f"  By type:        {stats['by_type']}")
 
-    if notifier and new_downloads:
-        by_type = count_media_by_type(new_downloads)
-        details = [
-            f"{d['tweet_id']}: {d['media_type']}" for d in new_downloads[:10]
-        ]
-        type_summary = ", ".join(f"{k}: {v}" for k, v in by_type.items())
-        notifier.send_download_report(
-            new_count=len(new_downloads),
-            total_count=stats["total"],
-            details=details,
-        )
+    logger.info("")
+    logger.info("=" * 40)
+    logger.info(f"📊 本次下载汇总:")
+    logger.info(f"   新增:   {len(new_downloads)} 个文件")
+    logger.info(f"   跳过:   {skipped} 个（已下载过）")
+    logger.info(f"   失败:   {len(failed_items)} 个")
+    logger.info(f"   总计库: {stats['total']} 个文件 / {stats['unique_tweets']} 条推文")
+    if stats['by_type']:
+        ts = " | ".join(f"{k}: {v}" for k, v in sorted(stats['by_type'].items()))
+        logger.info(f"   类型:   {ts}")
+
+    # --- Telegram 通知 ---
+    if notifier:
+        if new_downloads or failed_items:
+            by_type = count_media_by_type(new_downloads)
+            details = [
+                f"{d['tweet_id']}: {d['media_type']}"
+                for d in new_downloads[:10]
+            ]
+            notifier.send_download_report(
+                new_count=len(new_downloads),
+                total_count=stats["total"],
+                failed_count=len(failed_items),
+                details=details if new_downloads else None,
+            )
+        elif skipped > 0 and len(media_items) > 0:
+            # 全部跳过，不发通知（避免骚扰）
+            logger.info("全部已下载，不发送通知。")
 
     db.close()
     return {
         "new_downloads": len(new_downloads),
-        "total_downloads": stats["total"],
+        "total": stats["total"],
+        "failed": failed_items,
         "items": new_downloads,
     }
 

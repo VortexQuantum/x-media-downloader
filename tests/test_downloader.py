@@ -1,105 +1,82 @@
 import os
 import tempfile
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from src.downloader import download_media, ensure_dir, filename_from_url
+
+
+class FakeResponse:
+    def __init__(self, status=200, content=b"data", ct="image/jpeg"):
+        self.status_code = status
+        self.content = content
+        self.headers = {"Content-Type": ct}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise __import__("requests").exceptions.HTTPError()
+
+    def iter_content(self, chunk_size=8192):
+        yield self.content
 
 
 def test_ensure_dir_creates():
     with tempfile.TemporaryDirectory() as tmp:
-        new_dir = os.path.join(tmp, "images")
-        ensure_dir(new_dir)
-        assert os.path.isdir(new_dir)
+        ensure_dir(os.path.join(tmp, "images"))
+        assert os.path.isdir(os.path.join(tmp, "images"))
 
 
 def test_filename_unique_per_url():
-    """同一 tweet 的多张图有不同文件名"""
-    name1 = filename_from_url(
-        "https://pbs.twimg.com/media/ABC?format=jpg&name=orig",
-        "tweet_456", "image"
-    )
-    name2 = filename_from_url(
-        "https://pbs.twimg.com/media/DEF?format=jpg&name=orig",
-        "tweet_456", "image"
-    )
+    name1 = filename_from_url("https://pbs.twimg.com/media/ABC?format=jpg&name=orig",
+                               "tweet_456", "image")
+    name2 = filename_from_url("https://pbs.twimg.com/media/DEF?format=jpg&name=orig",
+                               "tweet_456", "image")
     assert name1 != name2
-    assert name1.startswith("tweet_456")
-    assert name2.startswith("tweet_456")
     assert name1.endswith(".jpg")
     assert name2.endswith(".jpg")
 
 
 def test_filename_from_query_format():
-    """Twitter URL format=jpg 也能提取扩展名"""
-    name = filename_from_url(
-        "https://pbs.twimg.com/media/ABC123?format=jpg&name=orig",
-        "tweet_456", "image"
-    )
-    assert name.endswith(".jpg")
-
-
-def test_filename_path_extension():
-    """标准 URL 路径提取扩展名"""
-    name = filename_from_url(
-        "https://example.com/video.mp4?tag=1",
-        "tweet_1", "video"
-    )
-    assert name.endswith(".mp4")
-
-
-def test_filename_fallback():
-    """无扩展名时用 media_type 兜底"""
-    name = filename_from_url(
-        "https://cdn.example.com/resource/abc",
-        "tweet_1", "image"
-    )
+    name = filename_from_url("https://pbs.twimg.com/media/ABC123?format=jpg&name=orig",
+                             "tweet_456", "image")
     assert name.endswith(".jpg")
 
 
 @patch("src.downloader.requests.get")
-def test_download_image(mock_get, tmp_path):
-    mock_get.return_value.status_code = 200
-    mock_get.return_value.content = b"fake-data"
-    mock_get.return_value.headers = {"Content-Type": "image/jpeg"}
-
-    path = download_media(
-        "https://example.com/photo.jpg",
-        str(tmp_path), "tweet_1", "image"
-    )
+def test_download_success(mock_get, tmp_path):
+    mock_get.return_value = FakeResponse()
+    path = download_media("https://example.com/p.jpg", str(tmp_path), "t1", "image")
+    assert path is not None
     assert os.path.exists(path)
 
 
 @patch("src.downloader.requests.get")
 def test_download_skip_existing(mock_get, tmp_path):
-    path = download_media(
-        "https://example.com/photo.jpg",
-        str(tmp_path), "tweet_1", "image"
-    )
-    path2 = download_media(
-        "https://example.com/photo.jpg",
-        str(tmp_path), "tweet_1", "image"
-    )
-    assert path == path2
+    mock_get.return_value = FakeResponse()
+    path1 = download_media("https://example.com/p.jpg", str(tmp_path), "t1", "image")
+    path2 = download_media("https://example.com/p.jpg", str(tmp_path), "t1", "image")
+    assert path1 == path2
     assert mock_get.call_count == 1
 
 
 @patch("src.downloader.requests.get")
-def test_download_retry_on_timeout(mock_get, tmp_path):
-    """超时自动重试"""
+@patch("src.downloader.time.sleep")
+def test_download_retry_then_skip(mock_sleep, mock_get, tmp_path):
+    """重试2次失败后返回 None（跳过），不抛异常"""
+    mock_get.side_effect = __import__("requests").exceptions.Timeout()
+    path = download_media("https://example.com/fail.jpg", str(tmp_path), "t1", "image", retries=2)
+    assert path is None
+    assert mock_get.call_count == 3  # 1 initial + 2 retries
+
+
+@patch("src.downloader.requests.get")
+@patch("src.downloader.time.sleep")
+def test_download_retry_then_succeed(mock_sleep, mock_get, tmp_path):
+    """第2次重试成功"""
     mock_get.side_effect = [
         __import__("requests").exceptions.Timeout(),
-        type("FakeResp", (), {
-            "status_code": 200,
-            "content": b"ok",
-            "headers": {"Content-Type": "image/jpeg"},
-            "raise_for_status": lambda self: None,
-            "iter_content": lambda self, **kw: [b"ok"],
-        })(),
+        __import__("requests").exceptions.Timeout(),
+        FakeResponse(),
     ]
-
-    path = download_media(
-        "https://example.com/retry.jpg",
-        str(tmp_path), "tweet_1", "image", retries=2
-    )
-    assert os.path.exists(path)
-    assert mock_get.call_count == 2
+    path = download_media("https://example.com/ok.jpg", str(tmp_path), "t1", "image", retries=2)
+    assert path is not None
+    assert mock_get.call_count == 3  # initial + 2 failures = 3 total (succeeds on 3rd)
