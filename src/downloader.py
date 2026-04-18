@@ -1,4 +1,4 @@
-"""Download media files from URLs to local storage."""
+"""下载媒体文件到本地存储。"""
 
 import os
 import re
@@ -6,7 +6,7 @@ import hashlib
 import time
 import requests
 import logging
-from typing import Optional
+from typing import Optional, Callable
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def ensure_dir(path: str):
 
 
 def filename_from_url(url: str, tweet_id: str, media_type: str) -> str:
-    """Generate a unique filename from URL and metadata."""
+    """从 URL 和元数据生成唯一文件名。"""
     parsed = urlparse(url)
     path_part = parsed.path
 
@@ -56,23 +56,22 @@ def _ext_from_query(query: str) -> str:
 
 
 def download_media(url: str, dest_dir: str, tweet_id: str,
-                   media_type: str, retries: int = 2) -> Optional[str]:
-    """Download a media file. Retries 2 times, skips on failure.
-    Returns file path on success, None on failure.
+                   media_type: str, retries: int = 2,
+                   progress_cb: Callable = None) -> Optional[str]:
+    """下载媒体文件。重试2次，失败跳过。
+
+    Args:
+        progress_cb: 可选进度回调 (bytes_done, total_bytes)
     """
     ensure_dir(dest_dir)
     fname = filename_from_url(url, tweet_id, media_type)
     filepath = os.path.join(dest_dir, fname)
 
     if os.path.exists(filepath):
-        logger.debug(f"  已存在，跳过: {os.path.basename(filepath)}")
         return filepath
 
-    for attempt in range(1, retries + 2):  # 1 initial + 2 retries = 3 total
+    for attempt in range(1, retries + 2):
         try:
-            if attempt > 1:
-                logger.info(f"  重试 {attempt - 1}/{retries}...")
-
             resp = requests.get(url, timeout=(15, 120), stream=True)
             resp.raise_for_status()
 
@@ -80,20 +79,28 @@ def download_media(url: str, dest_dir: str, tweet_id: str,
             if ct in CONTENT_TYPE_MAP and not filepath.endswith(CONTENT_TYPE_MAP[ct]):
                 filepath = filepath.rsplit(".", 1)[0] + CONTENT_TYPE_MAP[ct]
 
+            total = int(resp.headers.get("content-length", 0))
+
             with open(filepath, "wb") as f:
+                downloaded = 0
                 for chunk in resp.iter_content(chunk_size=65536):
                     f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_cb and total > 0:
+                        progress_cb(downloaded, total)
 
-            size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            logger.info(f"  ✓ {os.path.basename(filepath)} ({size_mb:.1f} MB)")
+            # Final callback
+            if progress_cb:
+                progress_cb(downloaded, max(downloaded, total))
+
             return filepath
 
         except Exception as e:
             if attempt <= retries:
-                logger.warning(f"  失败，{3}s 后重试: {e}")
+                logger.warning(f"下载失败, 3s 后重试: {e}")
                 time.sleep(3)
             else:
-                logger.error(f"  ✗ 重试 {retries} 次后放弃: {e}")
+                logger.error(f"重试 {retries} 次后放弃: {e}")
                 return None
 
     return None
