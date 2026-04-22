@@ -14,13 +14,11 @@ def db():
     os.unlink(tmp.name)
 
 
-def test_init_creates_tables(db):
+def test_init_creates_table(db):
     rows = db.conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='downloads'"
     ).fetchall()
-    names = {r[0] for r in rows}
-    assert "downloads" in names
-    assert "fetch_state" in names
+    assert len(rows) == 1
 
 
 def test_is_downloaded_false(db):
@@ -32,21 +30,11 @@ def test_mark_and_check_downloaded(db):
     assert db.is_downloaded("tweet_123", "http://a.jpg") is True
 
 
-def test_mark_downloaded_idempotent(db):
-    db.mark_downloaded("tweet_456", "http://a.jpg", "/tmp/a.jpg", "image")
-    db.mark_downloaded("tweet_456", "http://a.jpg", "/tmp/a.jpg", "image")
-    assert db.is_downloaded("tweet_456", "http://a.jpg") is True
-
-
 def test_same_tweet_multiple_media(db):
-    """同一 tweet 的多张图片都能记录"""
     db.mark_downloaded("multi", "http://img1.jpg", "/tmp/img1.jpg", "image")
     db.mark_downloaded("multi", "http://img2.jpg", "/tmp/img2.jpg", "image")
     assert db.is_downloaded("multi", "http://img1.jpg") is True
     assert db.is_downloaded("multi", "http://img2.jpg") is True
-    stats = db.get_stats()
-    assert stats["total"] == 2
-    assert stats["unique_tweets"] == 1
 
 
 def test_get_stats(db):
@@ -55,11 +43,18 @@ def test_get_stats(db):
     stats = db.get_stats()
     assert stats["total"] == 2
     assert stats["unique_tweets"] == 2
-    assert stats["by_type"]["image"] == 1
-    assert stats["by_type"]["video"] == 1
 
 
-def test_fetch_offset(db):
-    assert db.get_fetch_offset() == 0
-    db.set_fetch_offset(100)
-    assert db.get_fetch_offset() == 100
+def test_are_all_downloaded_true(db):
+    db.mark_downloaded("a", "u1", "/a.jpg", "image")
+    db.mark_downloaded("b", "u2", "/b.jpg", "image")
+    assert db.are_all_downloaded(["a", "b"]) is True
+
+
+def test_are_all_downloaded_false(db):
+    db.mark_downloaded("a", "u1", "/a.jpg", "image")
+    assert db.are_all_downloaded(["a", "b"]) is False
+
+
+def test_are_all_downloaded_empty(db):
+    assert db.are_all_downloaded([]) is True

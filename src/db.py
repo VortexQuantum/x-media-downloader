@@ -26,18 +26,6 @@ class DownloadDB:
             CREATE INDEX IF NOT EXISTS idx_downloaded_at
             ON downloads(downloaded_at)
         """)
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS fetch_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                fetched_up_to INTEGER DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Ensure the single row exists
-        self.conn.execute("""
-            INSERT OR IGNORE INTO fetch_state (id, fetched_up_to)
-            VALUES (1, 0)
-        """)
         self.conn.commit()
 
     def is_downloaded(self, tweet_id: str, media_url: str) -> bool:
@@ -46,6 +34,17 @@ class DownloadDB:
             (tweet_id, media_url)
         ).fetchone()
         return row is not None
+
+    def are_all_downloaded(self, tweet_ids: list) -> bool:
+        """检查这批推文是否已经全部下载过。"""
+        if not tweet_ids:
+            return True
+        placeholders = ",".join("?" * len(tweet_ids))
+        count = self.conn.execute(
+            f"SELECT COUNT(DISTINCT tweet_id) FROM downloads WHERE tweet_id IN ({placeholders})",
+            tweet_ids
+        ).fetchone()[0]
+        return count >= len(tweet_ids)
 
     def mark_downloaded(self, tweet_id: str, media_url: str,
                         file_path: str, media_type: str):
@@ -70,19 +69,6 @@ class DownloadDB:
             "SELECT COUNT(DISTINCT tweet_id) FROM downloads"
         ).fetchone()[0]
         return {"total": total, "by_type": by_type, "unique_tweets": unique_tweets}
-
-    def get_fetch_offset(self) -> int:
-        row = self.conn.execute(
-            "SELECT fetched_up_to FROM fetch_state WHERE id = 1"
-        ).fetchone()
-        return row[0] if row else 0
-
-    def set_fetch_offset(self, offset: int):
-        self.conn.execute(
-            "UPDATE fetch_state SET fetched_up_to = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            (offset,)
-        )
-        self.conn.commit()
 
     def close(self):
         self.conn.close()

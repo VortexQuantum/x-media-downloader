@@ -48,10 +48,10 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
 
     total_new, total_skipped, total_failed = 0, 0, []
     page = 0
+    offset = 0  # Always start from position 1 (newest first)
 
     while True:
         page += 1
-        offset = db.get_fetch_offset()
 
         if use_tui:
             console.print()
@@ -83,10 +83,20 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
             console.print(f"⏱  抓取 {elapsed:.1f}s | 📊 {unique_tweets} 条推文, {total_media} 个媒体 | {type_str}")
             console.print()
 
-        # Stop conditions
+        # Stop: no media at all (past end of likes)
         if not total_media:
             if use_tui:
                 console.print("[yellow]已追到最新，没有更多喜欢了。[/yellow]")
+            break
+
+        # Check if entire page is already downloaded
+        tweet_ids = list(tweet_groups.keys())
+        if db.are_all_downloaded(tweet_ids):
+            if use_tui:
+                if page == 1:
+                    console.print("[green]没有新喜欢，已是最新。[/green]")
+                else:
+                    console.print(f"[green]第 {page} 页全部已下载，停止扫描。[/green]")
             break
 
         new_downloads, skipped, failed = [], 0, []
@@ -98,8 +108,7 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
             _run_simple(tweet_groups, config, db,
                         new_downloads, failed, skipped)
 
-        db.set_fetch_offset(offset + batch_size)
-
+        offset += batch_size
         total_new += len(new_downloads)
         total_skipped += skipped
         total_failed.extend(failed)
@@ -117,13 +126,18 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
                 details=details if new_downloads else None,
             )
 
+        # Stop conditions
         if not all_pages:
+            # Single-page mode (cron): stop after one page
             break
 
         if unique_tweets < batch_size:
             if use_tui:
                 console.print("[yellow]本页不足一页，已追到底。[/yellow]")
             break
+
+        # Chrom: if this page had new content, continue to next page
+        # (new likes might have pushed old content further back)
 
     db.close()
 
