@@ -5,6 +5,10 @@ import sys
 import time
 import logging
 import os
+import warnings
+
+# Suppress urllib3 OpenSSL warning on macOS
+warnings.filterwarnings("ignore", module="urllib3")
 
 from rich.console import Console
 from rich.progress import (
@@ -165,7 +169,6 @@ def _run_tui(tweet_groups, unique_tweets, config, db,
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(bar_width=30),
-        TaskProgressColumn(),
         MofNCompleteColumn(),
         TimeRemainingColumn(),
         console=console,
