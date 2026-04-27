@@ -4,8 +4,9 @@ import os
 import re
 import hashlib
 import time
-import requests
+import socket
 import logging
+import requests
 from typing import Optional, Callable
 from urllib.parse import urlparse
 
@@ -70,37 +71,94 @@ def download_media(url: str, dest_dir: str, tweet_id: str,
     if os.path.exists(filepath):
         return filepath
 
+    # Fresh session per download to avoid connection reuse issues
+    session = requests.Session()
+
     for attempt in range(1, retries + 2):
         try:
-            resp = requests.get(url, timeout=(15, 120), stream=True)
+            # Different timeout per file type
+            if media_type in ("photo", "image"):
+                # Images: short timeout, no streaming
+                timeout = 30
+                stream = False
+            else:
+                # Videos: longer per-chunk timeout
+                timeout = (10, 60)
+                stream = True
+
+            resp = session.get(url, timeout=timeout, stream=stream)
             resp.raise_for_status()
 
+            # Correct extension
             ct = resp.headers.get("Content-Type", "").split(";")[0].strip()
             if ct in CONTENT_TYPE_MAP and not filepath.endswith(CONTENT_TYPE_MAP[ct]):
                 filepath = filepath.rsplit(".", 1)[0] + CONTENT_TYPE_MAP[ct]
 
-            total = int(resp.headers.get("content-length", 0))
+            if stream:
+                # Video: download with per-chunk socket timeout
+                total = int(resp.headers.get("content-length", 0))
+                # Set socket timeout for each read
+                try:
+                    raw = resp.raw
+                    if hasattr(raw, '_fp'):
+                        raw._fp.timeout = 60  # urllib3 per-read timeout
+                except Exception:
+                    pass
 
-            with open(filepath, "wb") as f:
-                downloaded = 0
-                for chunk in resp.iter_content(chunk_size=65536):
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if progress_cb and total > 0:
-                        progress_cb(downloaded, total)
-
-            # Final callback
-            if progress_cb:
-                progress_cb(downloaded, max(downloaded, total))
+                with open(filepath, "wb") as f:
+                    downloaded = 0
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_cb and total > 0:
+                            progress_cb(downloaded, total)
+                    if progress_cb:
+                        progress_cb(downloaded, max(downloaded, total))
+            else:
+                # Image: direct download with progress
+                total = len(resp.content)
+                with open(filepath, "wb") as f:
+                    f.write(resp.content)
+                if progress_cb:
+                    progress_cb(total, total)
 
             return filepath
 
-        except Exception as e:
+        except requests.exceptions.Timeout as e:
+            _cleanup(filepath)
             if attempt <= retries:
-                logger.warning(f"下载失败, 3s 后重试: {e}")
+                logger.warning(f"超时, 3s 后重试 ({attempt}/{retries})")
+                time.sleep(3)
+            else:
+                logger.error(f"超时 {retries} 次后放弃")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            _cleanup(filepath)
+            if attempt <= retries:
+                logger.warning(f"失败, 3s 后重试 ({attempt}/{retries}): {e}")
                 time.sleep(3)
             else:
                 logger.error(f"重试 {retries} 次后放弃: {e}")
                 return None
 
+        except Exception as e:
+            _cleanup(filepath)
+            logger.error(f"异常, 跳过: {e}")
+            return None
+
+        finally:
+            session.close()
+
     return None
+
+
+def _cleanup(filepath: str):
+    """Clean up partial downloads."""
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except Exception:
+        pass
