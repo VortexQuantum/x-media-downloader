@@ -143,10 +143,10 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
         # Chrom: if this page had new content, continue to next page
         # (new likes might have pushed old content further back)
 
+    stats = db.get_stats()
     db.close()
 
     if all_pages and use_tui and page > 1:
-        stats = db.get_stats()
         console.print()
         console.print(Panel.fit(
             f"[bold green]🎉 全部完成！[/bold green]\n"
@@ -157,7 +157,7 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
 
     return {
         "new_downloads": total_new,
-        "total": db.get_stats()["total"],
+        "total": stats["total"],
         "failed": total_failed,
         "pages": page,
     }
