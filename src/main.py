@@ -135,13 +135,7 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
             # Single-page mode (cron): stop after one page
             break
 
-        if unique_tweets < batch_size:
-            if use_tui:
-                console.print("[yellow]本页不足一页，已追到底。[/yellow]")
-            break
-
-        # Chrom: if this page had new content, continue to next page
-        # (new likes might have pushed old content further back)
+    # End of loop — exhausted all pages or stopped
 
     stats = db.get_stats()
     db.close()
