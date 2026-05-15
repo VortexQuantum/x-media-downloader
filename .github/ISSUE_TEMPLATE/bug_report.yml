@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, remove secrets from logs and screenshots. Never include `auth_token`, Telegram `bot_token`, Telegram `chat_id`, `config.yaml`, `.env`, `twitter-cookies.txt`, or downloaded private media.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest command/config shape that reproduces the issue. Redact secrets.
+      placeholder: |
+        1. Run `python3 -m src.main --all`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "python3 --version"
+  - type: input
+    id: gallery-dl
+    attributes:
+      label: gallery-dl version
+      placeholder: "python3 -m gallery_dl --version"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Paste only logs with secrets removed.
+      render: text
+

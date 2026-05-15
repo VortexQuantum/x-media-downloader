@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/VortexQuantum/x-media-downloader/security/advisories/new
+    about: Report leaked tokens, cookie handling issues, or other security-sensitive problems privately.
+
