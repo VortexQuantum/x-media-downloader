@@ -67,6 +67,7 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
         t0 = time.time()
         raw_json = fetch_liked_tweets(
             cookies_file=config["gallery_dl"]["cookies_file"],
+            username=config["gallery_dl"]["username"],
             max_results=batch_size, offset=offset,
             gallery_dl_bin=config["gallery_dl"]["bin"],
         )

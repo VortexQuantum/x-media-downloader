@@ -1,6 +1,6 @@
 import json
 import pytest
-from src.twitter import parse_liked_tweets
+from src.twitter import fetch_liked_tweets, parse_liked_tweets
 
 
 def test_parse_image_tweet():
@@ -74,3 +74,50 @@ def test_parse_mixed_tweets():
     assert results[0]["tweet_id"] == "t1"
     assert results[1]["tweet_id"] == "t3"
     assert results[2]["tweet_id"] == "t3"
+
+
+def test_fetch_liked_tweets_requires_username(tmp_path):
+    cookies_file = tmp_path / "cookies.txt"
+    cookies_file.write_text("cookie", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="X username is required"):
+        fetch_liked_tweets(str(cookies_file), username="")
+
+    with pytest.raises(ValueError, match="X username is required"):
+        fetch_liked_tweets(str(cookies_file), username="YOUR_X_USERNAME")
+
+
+def test_fetch_liked_tweets_rejects_url_as_username(tmp_path):
+    cookies_file = tmp_path / "cookies.txt"
+    cookies_file.write_text("cookie", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must be a handle"):
+        fetch_liked_tweets(str(cookies_file), username="https://x.com/someuser")
+
+
+def test_fetch_liked_tweets_uses_username_in_url(monkeypatch, tmp_path):
+    cookies_file = tmp_path / "cookies.txt"
+    cookies_file.write_text("cookie", encoding="utf-8")
+    captured = {}
+
+    class DummyResult:
+        returncode = 0
+        stdout = "[]"
+        stderr = ""
+
+    def fake_run(cmd, capture_output, text, timeout):
+        captured["cmd"] = cmd
+        return DummyResult()
+
+    monkeypatch.setattr("src.twitter.subprocess.run", fake_run)
+
+    fetch_liked_tweets(
+        str(cookies_file),
+        username="@someuser",
+        max_results=50,
+        offset=100,
+    )
+
+    assert captured["cmd"][-1] == "https://x.com/someuser/likes"
+    assert "--range" in captured["cmd"]
+    assert "101-150" in captured["cmd"]

@@ -8,6 +8,7 @@ def test_load_config_defaults():
     config = load_config("/nonexistent/config.yaml")
     assert "download_dir" in config
     assert config["telegram"]["enabled"] is False
+    assert config["gallery_dl"]["username"] == ""
 
 
 def test_load_config_from_file():
@@ -31,12 +32,21 @@ telegram:
 
 def test_config_env_override():
     os.environ["XM_TELEGRAM_BOT_TOKEN"] = "env-token"
+    os.environ["XM_X_USERNAME"] = "env-user"
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write("telegram:\n  bot_token: file-token\n  chat_id: '1'")
+        f.write(
+            "telegram:\n"
+            "  bot_token: file-token\n"
+            "  chat_id: '1'\n"
+            "gallery_dl:\n"
+            "  username: file-user\n"
+        )
         tmp_path = f.name
 
     from src.config import load_config
     config = load_config(tmp_path)
     assert config["telegram"]["bot_token"] == "env-token"
+    assert config["gallery_dl"]["username"] == "env-user"
     os.environ.pop("XM_TELEGRAM_BOT_TOKEN")
+    os.environ.pop("XM_X_USERNAME")
     os.unlink(tmp_path)

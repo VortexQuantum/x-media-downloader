@@ -15,6 +15,7 @@ DEFAULT_CONFIG = {
     "gallery_dl": {
         "cookies_file": "twitter-cookies.txt",
         "bin": "gallery-dl",
+        "username": "",
         "likes_per_fetch": 100,
     },
 }
@@ -23,6 +24,7 @@ ENV_MAP = {
     "XM_DOWNLOAD_DIR": "download_dir",
     "XM_TELEGRAM_BOT_TOKEN": "telegram.bot_token",
     "XM_TELEGRAM_CHAT_ID": "telegram.chat_id",
+    "XM_X_USERNAME": "gallery_dl.username",
 }
 
 

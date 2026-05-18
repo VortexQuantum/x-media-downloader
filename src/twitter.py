@@ -9,7 +9,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
+def fetch_liked_tweets(cookies_file: str, username: str, max_results: int = 100,
                        offset: int = 0,
                        gallery_dl_bin: str = "gallery-dl") -> str:
     """Fetch liked tweets as JSON via gallery-dl. Returns raw JSON string.
@@ -17,6 +17,15 @@ def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
     If offset=0 (default), fetches all liked tweets (no range limit).
     If offset>0, fetches range offset+1 to offset+max_results for pagination.
     """
+    username = username.strip().lstrip("@") if username else ""
+    if not username or username == "YOUR_X_USERNAME":
+        raise ValueError(
+            "X username is required. Set gallery_dl.username in config.yaml "
+            "or XM_X_USERNAME in the environment."
+        )
+    if any(ch.isspace() for ch in username) or "/" in username:
+        raise ValueError("X username must be a handle, not a URL or display name.")
+
     if not os.path.exists(cookies_file):
         raise FileNotFoundError(
             f"Cookies file not found: {cookies_file}\n"
@@ -36,7 +45,7 @@ def fetch_liked_tweets(cookies_file: str, max_results: int = 100,
         base_cmd.extend(["--range", f"{start}-{end}"])
     # else: no --range = fetch all likes
 
-    base_cmd.append("https://x.com/zhengrenzhe/likes")
+    base_cmd.append(f"https://x.com/{username}/likes")
 
     logger.info(f"Running: {' '.join(base_cmd)}")
     result = subprocess.run(

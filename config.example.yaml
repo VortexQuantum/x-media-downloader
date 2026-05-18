@@ -16,4 +16,5 @@ telegram:
 gallery_dl:
   cookies_file: "twitter-cookies.txt"
   bin: "gallery-dl"
+  username: "YOUR_X_USERNAME"
   likes_per_fetch: 100

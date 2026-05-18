@@ -33,8 +33,13 @@ X Media Downloader 是一个 **Python CLI 工具**，用于自动化地将 X (Tw
 ```
 x-media-downloader/
 ├── AGENTS.md                  # AI 助手快速参考
+├── LICENSE                    # MIT License
+├── CONTRIBUTING.md            # 贡献指南
+├── SECURITY.md                # 安全策略
+├── ROADMAP.md                 # 路线图
 ├── docs/
-│   └── architecture.md        # 本文档
+│   ├── architecture.md        # 本文档
+│   └── 1password-open-source-checklist.md
 ├── src/
 │   ├── __init__.py            # 版本号
 │   ├── main.py                # 入口；主循环；TUI
@@ -183,6 +188,7 @@ config.yaml（项目根目录）
 - `download_dir`：展开 `~`
 - `db_path`：若为相对路径，相对于 config.yaml 所在目录解析
 - `gallery_dl.cookies_file`：同上
+- `gallery_dl.username`：目标 X/Twitter handle；运行时允许用 `XM_X_USERNAME` 覆盖，空值、占位值、URL 或显示名会被拒绝
 
 ---
 
@@ -238,7 +244,7 @@ Cookie 文件由 `setup-cookie.py` 引导用户从 Chrome DevTools 中复制 `au
 → 在 `downloader.py` 的 `CONTENT_TYPE_MAP` 和 `_ext_from_path()` 中添加扩展名映射。
 
 **参数化目标账号**  
-→ 修改 `twitter.py` 中 `fetch_liked_tweets()` 的硬编码 URL `https://x.com/zhengrenzhe/likes`，改为接受 `username` 参数。
+→ 通过 `gallery_dl.username` 配置目标 X 账号，运行时可用 `XM_X_USERNAME` 覆盖；`twitter.py` 的 `fetch_liked_tweets()` 必须从配置接收 `username`，不要再硬编码具体账号。
 
 **新增配置项**  
 → 同时更新 `config.py` 的 `DEFAULT_CONFIG` 字典和 `config.example.yaml`。

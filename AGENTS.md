@@ -19,7 +19,7 @@ pip3 install -r requirements.txt
 # 首次：导出 Twitter Cookie
 python3 setup-cookie.py
 
-# 配置（复制后填入 Telegram Token / chat_id）
+# 配置（复制后填入 X 用户名、Telegram Token / chat_id）
 cp config.example.yaml config.yaml
 
 # 单次运行（只抓第一页，适合 cron）
@@ -32,7 +32,7 @@ python3 -m src.main --all
 **测试：**
 
 ```bash
-pytest tests/
+python3 -m pytest tests/
 ```
 
 ---
@@ -83,12 +83,14 @@ TelegramNotifier.send_download_report()
 | `telegram.chat_id` | string | Telegram Chat ID |
 | `gallery_dl.cookies_file` | string | Netscape 格式 cookie 文件路径 |
 | `gallery_dl.bin` | string | gallery-dl 可执行路径（默认 `gallery-dl`） |
+| `gallery_dl.username` | string | 目标 X 账号用户名，用于拼接 likes 页面 URL |
 | `gallery_dl.likes_per_fetch` | int | 每页抓取数量（默认 100） |
 
 **环境变量覆盖（优先级最高）：**
 - `XM_DOWNLOAD_DIR` → `download_dir`
 - `XM_TELEGRAM_BOT_TOKEN` → `telegram.bot_token`
 - `XM_TELEGRAM_CHAT_ID` → `telegram.chat_id`
+- `XM_X_USERNAME` → `gallery_dl.username`
 
 ---
 
@@ -159,6 +161,6 @@ CREATE TABLE downloads (
 
 - **新增配置项**：同时更新 `config.py` 的 `DEFAULT_CONFIG` 和 `config.example.yaml`。
 - **修改 DB Schema**：`DownloadDB._init_schema()` 使用 `CREATE TABLE IF NOT EXISTS`，需自行处理迁移。
-- **gallery-dl 调用**：`fetch_liked_tweets()` 中 URL 硬编码为 `https://x.com/zhengrenzhe/likes`，如需参数化请修改此处及调用方。
+- **gallery-dl 调用**：目标 likes 页面必须来自 `gallery_dl.username` / `XM_X_USERNAME`，不要在代码里硬编码具体 X 账号。
 - **TUI / 非 TUI**：`main.py` 通过 `_is_tty()` 判断，非 TTY 环境（如 cron）自动切换为简单文本输出，避免 Rich 控制字符污染日志。
 - **不要在 `download_media()` 中引入会话复用**：注释已说明每次下载使用独立 Session 是为了规避连接复用问题。
