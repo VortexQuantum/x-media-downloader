@@ -2,6 +2,8 @@
 
 自动下载 X (Twitter) 账号「已喜欢」(Likes) 帖子中的所有图片和视频，去重后存至本地，完成后发送 Telegram 通知。
 
+> 本项目只面向个人归档和备份场景。使用者需要自行确认下载行为符合 X/Twitter 服务条款、内容版权和所在地法律要求。
+
 ## 功能特点
 
 - 🖼️ 自动下载已喜欢推文中的图片和视频
@@ -25,7 +27,7 @@ python3 setup-cookie.py
 
 # 3. 配置
 cp config.example.yaml config.yaml
-# 编辑 config.yaml，填入 Telegram Bot Token 和 Chat ID
+# 编辑 config.yaml，填入 X 用户名、Telegram Bot Token 和 Chat ID
 
 # 4. 运行
 python3 -m src.main          # 单次运行（只抓第一页）
@@ -43,9 +45,23 @@ python3 -m src.main --all    # 全量扫描（直到追完所有历史喜欢）
 | `telegram.bot_token` | Telegram Bot Token（从 @BotFather 获取） |
 | `telegram.chat_id` | 通知发送目标 Chat ID |
 | `gallery_dl.cookies_file` | Twitter Cookie 文件路径 |
+| `gallery_dl.username` | 目标 X/Twitter 用户名，不要包含 URL |
 | `gallery_dl.likes_per_fetch` | 每批抓取数量（默认 100） |
 
-也支持环境变量覆盖：`XM_DOWNLOAD_DIR`、`XM_TELEGRAM_BOT_TOKEN`、`XM_TELEGRAM_CHAT_ID`。
+也支持环境变量覆盖：`XM_DOWNLOAD_DIR`、`XM_TELEGRAM_BOT_TOKEN`、`XM_TELEGRAM_CHAT_ID`、`XM_X_USERNAME`。
+
+## 安全提醒
+
+不要把下面内容提交到仓库、公开 Issue、公开 PR、截图或日志里：
+
+- `config.yaml`
+- `.env`
+- `twitter-cookies.txt`
+- `downloads.db`
+- Twitter/X cookies 或 `auth_token`
+- Telegram bot token 或 `chat_id`
+
+更多说明见 [SECURITY.md](SECURITY.md)。
 
 ## 项目结构
 
@@ -60,13 +76,13 @@ x-media-downloader/
 │   ├── notifier.py     # Telegram 下载报告推送
 │   └── __init__.py
 ├── tests/              # 单元测试
-├── config.yaml         # 配置文件
+├── config.yaml         # 配置文件（gitignore）
 ├── config.example.yaml # 配置示例
-├── downloads.db        # SQLite 去重数据库
+├── downloads.db        # SQLite 去重数据库（gitignore）
 ├── install.sh          # 安装脚本
 ├── setup-cookie.py     # Cookie 导出助手
 ├── requirements.txt    # Python 依赖
-└── twitter-cookies.txt # Twitter Cookie（Netscape 格式）
+└── twitter-cookies.txt # Twitter Cookie（Netscape 格式，gitignore）
 ```
 
 ## 数据流
@@ -90,9 +106,13 @@ TelegramNotifier.send_download_report()
 ## 测试
 
 ```bash
-pytest tests/
+python3 -m pytest tests/
 ```
+
+## 参与贡献
+
+贡献前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。项目路线见 [ROADMAP.md](ROADMAP.md)。
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)
