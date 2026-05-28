@@ -22,4 +22,3 @@ body:
     attributes:
       label: Alternatives considered
       description: Mention simpler options or why existing behavior is not enough.
-
