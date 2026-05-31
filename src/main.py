@@ -107,11 +107,11 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
         new_downloads, skipped, failed = [], 0, []
 
         if use_tui:
-            _run_tui(tweet_groups, unique_tweets, config, db,
-                     new_downloads, failed, skipped)
+            skipped = _run_tui(tweet_groups, unique_tweets, config, db,
+                               new_downloads, failed)
         else:
-            _run_simple(tweet_groups, config, db,
-                        new_downloads, failed, skipped)
+            skipped = _run_simple(tweet_groups, config, db,
+                                  new_downloads, failed)
 
         offset += batch_size
         total_new += len(new_downloads)
@@ -159,7 +159,8 @@ def run(config_path: str = None, all_pages: bool = False) -> dict:
 
 
 def _run_tui(tweet_groups, unique_tweets, config, db,
-             new_downloads, failed_items, skipped):
+             new_downloads, failed_items):
+    skipped = 0
     progress = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -220,9 +221,11 @@ def _run_tui(tweet_groups, unique_tweets, config, db,
                             description=f"[cyan]推文 [{tweet_idx}/{unique_tweets}]")
 
     console.print()
+    return skipped
 
 
-def _run_simple(tweet_groups, config, db, new_downloads, failed_items, skipped):
+def _run_simple(tweet_groups, config, db, new_downloads, failed_items):
+    skipped = 0
     for tweet_id, items in tweet_groups.items():
         for item in items:
             media_url = item["media_url"]
@@ -238,6 +241,7 @@ def _run_simple(tweet_groups, config, db, new_downloads, failed_items, skipped):
                 new_downloads.append(item)
             else:
                 failed_items.append(item)
+    return skipped
 
 
 def _print_summary(new_count, skipped, failed, stats, use_tui):

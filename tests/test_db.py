@@ -58,3 +58,13 @@ def test_are_all_downloaded_false(db):
 
 def test_are_all_downloaded_empty(db):
     assert db.are_all_downloaded([]) is True
+
+
+def test_relative_db_path_in_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = DownloadDB("downloads.db")
+    try:
+        db.mark_downloaded("t1", "u1", "file.jpg", "image")
+        assert db.is_downloaded("t1", "u1") is True
+    finally:
+        db.close()
