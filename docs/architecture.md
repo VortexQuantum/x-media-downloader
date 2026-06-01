@@ -37,6 +37,11 @@ x-media-downloader/
 ├── CONTRIBUTING.md            # 贡献指南
 ├── SECURITY.md                # 安全策略
 ├── ROADMAP.md                 # 路线图
+├── CHANGELOG.md               # 发布说明
+├── .github/
+│   ├── workflows/tests.yml    # GitHub Actions 测试
+│   ├── ISSUE_TEMPLATE/        # Issue 模板
+│   └── pull_request_template.md
 ├── docs/
 │   ├── architecture.md        # 本文档
 │   └── 1password-open-source-checklist.md
